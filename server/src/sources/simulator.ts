@@ -76,6 +76,11 @@ export class Simulator {
     return false;
   }
 
+  /** 测试专用：强制某源从下一拍起进入故障（不产点、状态置 error），便于确定性验证异常路径。 */
+  forceFault(id: string, ticks: number = FAULT_TICKS): void {
+    this.faultLeft.set(id, Math.max(1, Math.floor(ticks)));
+  }
+
   /** 生成一个节拍：仅对“已开启且非异常”的源产出数据点。 */
   tick(ts: number): MetricPoint[] {
     const out: MetricPoint[] = [];

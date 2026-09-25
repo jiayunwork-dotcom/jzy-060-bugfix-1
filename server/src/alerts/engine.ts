@@ -115,6 +115,24 @@ export class AlertEngine {
     return event;
   }
 
+  /**
+   * 某数据源停止产出（被手动关闭或采集异常）：其名下所有激活告警立即解除，
+   * 不再干等下一个数据点；同时丢弃该源的“最近值”，避免规则改动时拿
+   * 停采前的旧读数重判出虚假告警。返回本次解除产生的事件。
+   */
+  resolveSource(sourceId: string, ts: number = Date.now()): AlertEvent[] {
+    this.lastValue.delete(sourceId);
+    const emitted: AlertEvent[] = [];
+    for (const [ruleId, active] of this.actives) {
+      if (active.sourceId !== sourceId) continue;
+      this.actives.delete(ruleId);
+      const event: AlertEvent = { ...active, id: shortId('evt_'), phase: 'resolved', ts };
+      this.pushEvent(event);
+      emitted.push(event);
+    }
+    return emitted;
+  }
+
   setLastValue(sourceId: string, value: number): void {
     this.lastValue.set(sourceId, value);
   }

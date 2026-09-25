@@ -69,8 +69,15 @@ export class Runtime {
 
   /** 一个实时节拍：模拟产出 -> 留档 -> 告警判定 -> 服务端主动推送。 */
   runTick(ts: number = Date.now()): MetricPoint[] {
+    const statusBefore = new Map(this.registry.list().map((s) => [s.def.id, s.status]));
     const points = this.simulator.tick(ts);
     if (points.length) this.ingestPoints(points);
+    // 本拍转入采集异常的源：其名下激活告警立即解除，不等恢复后的新点
+    for (const s of this.registry.list()) {
+      if (s.status === 'error' && statusBefore.get(s.def.id) !== 'error') {
+        this.resolveSourceAlerts(s.def.id, ts);
+      }
+    }
     // 源状态（含故障标记）也每拍同步给页面
     this.hub.broadcast(this.buildSnapshot());
     return points;
@@ -104,6 +111,21 @@ export class Runtime {
   /** 规则增删改后立即按最新值重判，并把结果推出去。 */
   resyncAlerts(): AlertEvent[] {
     const events = this.alerts.resync(Date.now());
+    if (events.length) this.emitAlertEvents(events);
+    return events;
+  }
+
+  /** 手动开/关某路源的采集；关闭时其名下激活告警立即解除。 */
+  setSourceEnabled(id: string, enabled: boolean): SourceState | undefined {
+    const s = this.registry.setEnabled(id, enabled);
+    if (!s) return undefined;
+    if (!enabled) this.resolveSourceAlerts(id);
+    return s;
+  }
+
+  /** 某源停止产出（被关闭或采集异常）时，立即解除其名下所有激活告警并推送。 */
+  resolveSourceAlerts(sourceId: string, ts: number = Date.now()): AlertEvent[] {
+    const events = this.alerts.resolveSource(sourceId, ts);
     if (events.length) this.emitAlertEvents(events);
     return events;
   }

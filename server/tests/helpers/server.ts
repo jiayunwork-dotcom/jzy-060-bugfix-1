@@ -139,3 +139,52 @@ export function waitForWsMessage(
     });
   });
 }
+
+/**
+ * 先建连并等首帧快照（确保 socket 已注册进推送中心），再执行 trigger，
+ * 最后等待满足 predicate 的推送消息。用于断言“某个动作触发的一次性推送”。
+ */
+export async function captureWsMessage(
+  wsUrl: string,
+  trigger: () => Promise<unknown>,
+  predicate: (msg: any) => boolean,
+  timeoutMs = 5000,
+): Promise<any> {
+  const ws = new WS(wsUrl);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('等待首帧快照超时')), timeoutMs);
+      ws.on('message', (data: Buffer) => {
+        try {
+          if (JSON.parse(data.toString()).type === 'snapshot') {
+            clearTimeout(timer);
+            resolve();
+          }
+        } catch {
+          /* 忽略无法解析的帧 */
+        }
+      });
+      ws.on('error', reject);
+    });
+
+    const message = new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('等待 WebSocket 消息超时')), timeoutMs);
+      ws.on('message', (data: Buffer) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (predicate(msg)) {
+            clearTimeout(timer);
+            resolve(msg);
+          }
+        } catch {
+          /* 忽略无法解析的帧 */
+        }
+      });
+      ws.on('error', reject);
+    });
+    await trigger();
+    return await message;
+  } finally {
+    ws.close();
+  }
+}

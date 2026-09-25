@@ -16,6 +16,11 @@ interface PruneBody {
   compact?: unknown;
 }
 
+interface FaultBody {
+  sourceId?: unknown;
+  ticks?: unknown;
+}
+
 function parsePoints(body: IngestBody, rt: Runtime): { ok: true; points: MetricPoint[] } | { ok: false; message: string } {
   if (!Array.isArray(body.points) || body.points.length === 0) {
     return { ok: false, message: 'points 必须是非空数组' };
@@ -50,6 +55,19 @@ export default async function testRoutes(app: FastifyInstance, rt: Runtime): Pro
     for (const s of rt.registry.list()) counts[s.def.id] = rt.history.count(s.def.id);
     return { removed, counts, now };
   });
+
+  // 强制某源从下一拍起进入采集异常（不产点、状态置 error），确定性验证异常路径
+  app.post<{ Body: FaultBody }>('/test/fault', async (req, reply) => {
+    const sourceId = String(req.body?.sourceId ?? '');
+    if (!rt.registry.get(sourceId)) return reply.code(400).send({ error: 'invalid_source', message: `未知数据源: ${sourceId}` });
+    const raw = Number(req.body?.ticks);
+    const ticks = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : undefined;
+    rt.simulator.forceFault(sourceId, ticks);
+    return { ok: true, sourceId };
+  });
+
+  // 立即执行一个采集节拍（不等定时器），与故障注入配合可确定性驱动异常转换
+  app.post('/test/tick', async () => ({ points: rt.runTick() }));
 
   // 查询内存与磁盘计数，供测试核对落盘
   app.get('/test/debug', async () => {
