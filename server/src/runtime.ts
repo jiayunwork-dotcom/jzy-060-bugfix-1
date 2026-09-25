@@ -70,10 +70,33 @@ export class Runtime {
   /** 一个实时节拍：模拟产出 -> 留档 -> 告警判定 -> 服务端主动推送。 */
   runTick(ts: number = Date.now()): MetricPoint[] {
     const points = this.simulator.tick(ts);
+    // 源被关闭或进入采集异常后不再产点，其激活告警不能干等下一次判定，立即解除
+    this.resolveDownSourceAlerts(ts);
     if (points.length) this.ingestPoints(points);
     // 源状态（含故障标记）也每拍同步给页面
     this.hub.broadcast(this.buildSnapshot());
     return points;
+  }
+
+  /**
+   * 手动开/关某一路源的采集。关闭时该源名下所有激活告警立即解除并广播；
+   * 重新打开不做任何特殊处理，由随后到达的真实数据点照常判定。
+   */
+  setSourceEnabled(id: string, enabled: boolean): SourceState | undefined {
+    const s = this.registry.setEnabled(id, enabled);
+    if (!s) return undefined;
+    if (!enabled) this.resolveDownSourceAlerts(Date.now());
+    return s;
+  }
+
+  /** 解除所有“已关闭或采集异常”源名下的激活告警（幂等），并把解除事件推给页面。 */
+  private resolveDownSourceAlerts(ts: number): void {
+    const events: AlertEvent[] = [];
+    for (const s of this.registry.list()) {
+      if (s.enabled && s.status !== 'error') continue;
+      events.push(...this.alerts.resolveSource(s.def.id, ts));
+    }
+    if (events.length) this.emitAlertEvents(events);
   }
 
   /**

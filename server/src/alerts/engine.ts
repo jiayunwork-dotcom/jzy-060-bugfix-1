@@ -105,6 +105,22 @@ export class AlertEngine {
     return emitted;
   }
 
+  /**
+   * 数据源被关闭或进入采集异常：该源名下所有激活告警立即解除，
+   * 不再干等下一个数据点来被动回落。返回本次解除产生的事件。
+   */
+  resolveSource(sourceId: string, ts: number = Date.now()): AlertEvent[] {
+    const emitted: AlertEvent[] = [];
+    for (const active of [...this.actives.values()]) {
+      if (active.sourceId !== sourceId) continue;
+      this.actives.delete(active.ruleId);
+      const event: AlertEvent = { ...active, id: shortId('evt_'), phase: 'resolved', ts };
+      this.pushEvent(event);
+      emitted.push(event);
+    }
+    return emitted;
+  }
+
   /** 规则被删除或停用：若它正激活，立即解除。 */
   deactivate(ruleId: string, ts: number = Date.now()): AlertEvent | null {
     const active = this.actives.get(ruleId);
