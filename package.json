@@ -1,0 +1,18 @@
+{
+  "name": "ops-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "浏览器内实时监控仪表板：WebSocket 推送、图表展示、告警、历史回放与数据源管理",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "dev:server": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build --workspace web && npm run build --workspace server",
+    "start": "npm run start --workspace server",
+    "test": "npm run test --workspace server"
+  }
+}
